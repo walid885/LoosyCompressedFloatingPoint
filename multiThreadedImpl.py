@@ -419,30 +419,61 @@ class EnhancedFloatingPointCompressor:
 #  relies on the DataFrame column names created from the lowercase keys
 #  returned by compress_data for the actual metrics).
 if __name__ == "__main__":
-
     # --- MPI Initialization ---
     if MPI_AVAILABLE:
+        from mpi4py import MPI
         comm = MPI.COMM_WORLD
     else:
-        comm = FakeComm() # Use fallback for single process run
+        comm = FakeComm()  # Use fallback for single process run
 
     rank = comm.Get_rank()
     size = comm.Get_size()
 
     # --- Configuration ---
-    sample_size_main = 1_000_000 # Can be reduced for faster testing
+    sample_size_main = 1_000_000  # Can be reduced for faster testing
     random_seed = 42
     output_dir_base_name = 'mpi_compression_analysis'
-
+    
+    # Get desired number of processes from command line if provided
+    target_processes = size
+    if len(sys.argv) > 1:
+        try:
+            target_processes = int(sys.argv[1])
+            if target_processes > size:
+                if rank == 0:
+                    print(f"Warning: Requested {target_processes} processes but only {size} available.")
+                target_processes = size
+        except ValueError:
+            if rank == 0:
+                print(f"Invalid process count: {sys.argv[1]}. Using available {size} processes.")
+    
+    # Only participate if this process is needed for the target count
+    if rank >= target_processes:
+        # Process not needed for this run
+        sys.exit(0)
+    
+    # Create a communicator with only the participating processes
+    if MPI_AVAILABLE and size > target_processes:
+        active_ranks = list(range(target_processes))
+        active_group = comm.group.Incl(active_ranks)
+        active_comm = comm.Create(active_group)
+        if rank < target_processes:
+            comm = active_comm
+    else:
+        # All processes are participating
+        pass
+    
     # --- Setup ---
     compressor = EnhancedFloatingPointCompressor(seed=random_seed,
-                                                 sample_size=sample_size_main,
-                                                 output_dir_base=output_dir_base_name)
+                                               sample_size=sample_size_main,
+                                               output_dir_base=f"{output_dir_base_name}_{target_processes}cores")
+    
+    # --- Timing Setup ---
     start_time = 0.0
     if rank == 0:
         start_time = time.time()
-        print(f"--- Starting MPI Analysis using {size} process(es) ---")
-        compressor._create_output_dir(size)
+        print(f"--- Starting MPI Analysis using {target_processes} process(es) ---")
+        compressor._create_output_dir(target_processes)
 
     # --- Data Generation ---
     if rank == 0: print("All Ranks: Generating initial data distributions...")
@@ -452,7 +483,8 @@ if __name__ == "__main__":
 
     # --- Bit Pattern Analysis (Run Once by Rank 0) ---
     if rank == 0:
-        if compressor.output_dir is None: compressor._create_output_dir(size)
+        if compressor.output_dir is None: 
+            compressor._create_output_dir(target_processes)
         compressor.generate_bit_pattern_analysis(distributions)
     comm.Barrier()
 
@@ -464,14 +496,14 @@ if __name__ == "__main__":
             all_tasks.append({'dist_name': dist_name, 'lsb': lsb})
 
     num_tasks = len(all_tasks)
-    tasks_per_rank = num_tasks // size
-    extra_tasks = num_tasks % size
+    tasks_per_rank = num_tasks // target_processes
+    extra_tasks = num_tasks % target_processes
     start_index = rank * tasks_per_rank + min(rank, extra_tasks)
     end_index = start_index + tasks_per_rank + (1 if rank < extra_tasks else 0)
     my_tasks = all_tasks[start_index:end_index]
 
     if rank == 0:
-        print(f"Rank 0: Total tasks = {num_tasks}. Distributing among {size} processes.")
+        print(f"Rank 0: Total tasks = {num_tasks}. Distributing among {target_processes} processes.")
 
     # --- Execute Assigned Tasks ---
     local_results = []
@@ -500,7 +532,6 @@ if __name__ == "__main__":
                 'compression_ratio': np.nan, 'max_abs_error': np.nan,
             })
 
-
     # --- Gather Results ---
     if rank == 0: print(f"Rank 0: Computation finished. Gathering results ({len(local_results)} from self)...")
     try:
@@ -515,7 +546,13 @@ if __name__ == "__main__":
     if rank == 0:
         end_time = time.time()
         duration = end_time - start_time
-        print(f"--- MPI Analysis with {size} process(es) finished in {duration:.2f} seconds ---")
+        print(f"--- MPI Analysis with {target_processes} process(es) finished in {duration:.2f} seconds ---")
+        
+        # Save the timing information
+        timing_file = os.path.join(compressor.output_dir, f'timing_{target_processes}_cores.txt')
+        with open(timing_file, 'w') as f:
+            f.write(f"Cores: {target_processes}\n")
+            f.write(f"Total execution time: {duration:.2f} seconds\n")
 
         all_results_flat = []
         if all_results_nested:
@@ -541,16 +578,22 @@ if __name__ == "__main__":
                 print(results_df.head())
 
                 # Generate plots, report, and save JSON (these functions now expect lowercase metric keys)
-                compressor._generate_plots(results_df, size)
-                compressor._generate_report(results_df, size)
+                compressor._generate_plots(results_df, target_processes)
+                compressor._generate_report(results_df, target_processes)
+                
+                # Add timing information to the report
+                report_file = os.path.join(compressor.output_dir, f'compression_report_{target_processes}_procs.md')
+                with open(report_file, 'a') as f:
+                    f.write(f"\n\n## Performance Metrics\n")
+                    f.write(f"- Number of cores used: {target_processes}\n")
+                    f.write(f"- Total execution time: {duration:.2f} seconds\n")
 
-                json_filename = os.path.join(compressor.output_dir, f'compression_analysis_results_{size}_procs.json')
+                json_filename = os.path.join(compressor.output_dir, f'compression_analysis_results_{target_processes}_procs.json')
                 try:
                     # Convert NaN to null for JSON compatibility if needed, orient='records' handles it well
                     results_df.to_json(json_filename, orient='records', indent=4, default_handler=str) # Added default_handler for safety
                     print(f"Rank 0: Saved analysis results: {json_filename}")
                 except Exception as e:
                     print(f"Rank 0 Error: Failed to save results to JSON: {e}")
-
 
         print(f"\nRank 0: Complete! Check the '{compressor.output_dir}' directory.")
