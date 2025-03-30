@@ -236,26 +236,23 @@ class EnhancedFloatingPointCompressor:
     def _generate_plots(self, results_df, num_procs):
         """Generates the main analysis plot. Assumes called by Rank 0."""
         if self.output_dir is None:
-             print("Rank 0 Error: Output directory not set for plotting.")
-             return
+            print("Rank 0 Error: Output directory not set for plotting.")
+            return
         if results_df.empty:
             print("Rank 0: No results to plot.")
             return
 
         print("Rank 0: Generating analysis plot...")
-        unique_distributions = results_df['Distribution'].unique() # Keep Uppercase 'D'
+        unique_distributions = results_df['Distribution'].unique()
         num_dist = len(unique_distributions)
         fig, axs = plt.subplots(num_dist, 4, figsize=(24, 4 * num_dist), squeeze=False)
         fig.suptitle(f'Compression Analysis (using {num_procs} MPI processes)', fontsize=16, y=1.02)
 
         for row, dist_name in enumerate(unique_distributions):
-            # Keep Uppercase 'D' and 'LSB' for filtering/sorting
             df = results_df[results_df['Distribution'] == dist_name].sort_values('LSB_Zeroed')
             if df.empty: continue
 
-            # --- FIX: Use lowercase keys for metrics from compress_data ---
-            # Fine/Coarse Entropy
-            # Use .iloc[[0]*len(df)] to repeat the first original value for plotting baseline
+            # Entropy plots - using lowercase keys consistently
             axs[row, 0].plot(df['LSB_Zeroed'], df['original_entropy_fine'].iloc[[0]*len(df)], label='Orig Fine', marker='s', linestyle='--', color='blue')
             axs[row, 0].plot(df['LSB_Zeroed'], df['compressed_entropy_fine'], label='Comp Fine', marker='x', color='blue')
             axs[row, 0].plot(df['LSB_Zeroed'], df['original_entropy_coarse'].iloc[[0]*len(df)], label='Orig Coarse', marker='o', linestyle='--', color='orange')
@@ -265,20 +262,20 @@ class EnhancedFloatingPointCompressor:
             axs[row, 0].set_ylabel('Entropy')
             axs[row, 0].legend(fontsize='small'); axs[row, 0].grid(True, linestyle=':')
 
-            # KL Divergence
+            # KL Divergence - using lowercase keys consistently
             axs[row, 1].plot(df['LSB_Zeroed'], df['kl_divergence_fine'], label='KL Fine', marker='o', color='green')
             axs[row, 1].plot(df['LSB_Zeroed'], df['kl_divergence_coarse'], label='KL Coarse', marker='x', color='red')
             axs[row, 1].set_title(f'{dist_name}: KL Divergence')
             axs[row, 1].set_xlabel('LSB Mantissa Bits Zeroed'); axs[row, 1].set_ylabel('KL Divergence (bits)')
             axs[row, 1].legend(fontsize='small'); axs[row, 1].grid(True, linestyle=':')
 
-            # Max Absolute Error
+            # Max Absolute Error - using lowercase keys consistently
             axs[row, 2].semilogy(df['LSB_Zeroed'], df['max_abs_error'], label='Max Abs Err', marker='^', color='purple')
             axs[row, 2].set_title(f'{dist_name}: Max Absolute Error')
             axs[row, 2].set_xlabel('LSB Mantissa Bits Zeroed'); axs[row, 2].set_ylabel('Max Abs Error (log)')
             axs[row, 2].legend(fontsize='small'); axs[row, 2].grid(True, linestyle=':')
 
-            # Compression Ratio & MSE
+            # Compression Ratio & MSE - using lowercase keys consistently
             ax_comp = axs[row, 3]
             ax_comp.plot(df['LSB_Zeroed'], df['compression_ratio'], label='zlib Ratio', marker='o', color='tab:blue')
             ax_comp.set_title(f'{dist_name}: Comp & MSE'); ax_comp.set_xlabel('LSB Mantissa Bits Zeroed')
@@ -290,7 +287,6 @@ class EnhancedFloatingPointCompressor:
             ax_mse.tick_params(axis='y', labelcolor='tab:red')
             lines1, labels1 = ax_comp.get_legend_handles_labels(); lines2, labels2 = ax_mse.get_legend_handles_labels()
             ax_comp.legend(lines1 + lines2, labels1 + labels2, loc='best', fontsize='small')
-            # --- End Fix ---
 
         plt.tight_layout(rect=[0, 0.03, 1, 0.98])
         plot_filename = os.path.join(self.output_dir, f'compression_analysis_{num_procs}_procs.pdf')
@@ -304,12 +300,11 @@ class EnhancedFloatingPointCompressor:
 
 
 
-
     def _generate_report(self, results_df, num_procs):
         """Generates the text report. Assumes called by Rank 0."""
         if self.output_dir is None:
-             print("Rank 0 Error: Output directory not set for reporting.")
-             return
+            print("Rank 0 Error: Output directory not set for reporting.")
+            return
         if results_df.empty:
             print("Rank 0: No results to write report.")
             return
@@ -321,7 +316,6 @@ class EnhancedFloatingPointCompressor:
                 f.write(f"MPI Compression and Entropy Analysis Report ({num_procs} Processes)\n")
                 f.write("=" * 60 + "\n\n")
 
-                # Keep Uppercase 'D' and 'LSB'
                 for dist in results_df['Distribution'].unique():
                     dist_data = results_df[results_df['Distribution'] == dist].sort_values('LSB_Zeroed')
                     if dist_data.empty: continue
@@ -329,32 +323,29 @@ class EnhancedFloatingPointCompressor:
                     f.write(f"Analysis for {dist} Distribution:\n")
                     f.write("-" * 40 + "\n")
 
-                    # --- FIX: Use lowercase keys for metrics from compress_data ---
+                    # Using lowercase keys consistently for all metrics
                     f.write("Average Metrics Across LSB Levels (NaNs ignored):\n")
-                    f.write(f"  Avg zlib Compression Ratio: {np.nanmean(dist_data['compression_ratio']):.4f}\n") # lowercase 'c'
-                    orig_ent_fine = dist_data['original_entropy_fine'].iloc[0] # lowercase 'o'
-                    orig_ent_coarse = dist_data['original_entropy_coarse'].iloc[0] # lowercase 'o'
+                    f.write(f"  Avg zlib Compression Ratio: {np.nanmean(dist_data['compression_ratio']):.4f}\n")
+                    orig_ent_fine = dist_data['original_entropy_fine'].iloc[0]
+                    orig_ent_coarse = dist_data['original_entropy_coarse'].iloc[0]
 
                     if not np.isnan(orig_ent_fine):
-                         fine_loss = orig_ent_fine - dist_data['compressed_entropy_fine'] # lowercase 'c'
-                         f.write(f"  Avg Fine Bin Entropy Loss: {np.nanmean(fine_loss):.4f}\n")
+                        fine_loss = orig_ent_fine - dist_data['compressed_entropy_fine']
+                        f.write(f"  Avg Fine Bin Entropy Loss: {np.nanmean(fine_loss):.4f}\n")
                     else: f.write("  Avg Fine Bin Entropy Loss: NaN (Original NaN)\n")
                     if not np.isnan(orig_ent_coarse):
-                         coarse_loss = orig_ent_coarse - dist_data['compressed_entropy_coarse'] # lowercase 'c'
-                         f.write(f"  Avg Coarse Bin Entropy Loss: {np.nanmean(coarse_loss):.4f}\n")
+                        coarse_loss = orig_ent_coarse - dist_data['compressed_entropy_coarse']
+                        f.write(f"  Avg Coarse Bin Entropy Loss: {np.nanmean(coarse_loss):.4f}\n")
                     else: f.write("  Avg Coarse Bin Entropy Loss: NaN (Original NaN)\n")
 
-                    f.write(f"  Avg KL Divergence (Fine Bins): {np.nanmean(dist_data['kl_divergence_fine']):.4f}\n") # lowercase 'k'
-                    f.write(f"  Avg Mean Squared Error: {np.nanmean(dist_data['mse']):.6e}\n") # lowercase 'm'
-                    f.write(f"  Avg Max Absolute Error: {np.nanmean(dist_data['max_abs_error']):.6e}\n\n") # lowercase 'm'
+                    f.write(f"  Avg KL Divergence (Fine Bins): {np.nanmean(dist_data['kl_divergence_fine']):.4f}\n")
+                    f.write(f"  Avg Mean Squared Error: {np.nanmean(dist_data['mse']):.6e}\n")
+                    f.write(f"  Avg Max Absolute Error: {np.nanmean(dist_data['max_abs_error']):.6e}\n\n")
                     f.write("Impact per LSB Zeroed Level:\n")
                     f.write(" LSB | zlib Ratio | KL Div Fine |      MSE      | Max Abs Error \n")
                     f.write("-----|------------|-------------|---------------|---------------\n")
                     for _, row in dist_data.iterrows():
-                         # Keep Uppercase 'LSB'
-                         # Use lowercase for metrics
                         f.write(f" {row['LSB_Zeroed']:<3} |   {row['compression_ratio']:<8.3f} |   {row['kl_divergence_fine']:<9.4f} | {row['mse']:<13.4e} | {row['max_abs_error']:<13.4e}\n")
-                    # --- End Fix ---
                     f.write("\n" + "=" * 40 + "\n\n")
 
             print(f"Rank 0: Comprehensive report generated: {report_filename}")
