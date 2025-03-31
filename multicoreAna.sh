@@ -17,6 +17,7 @@ for cores in "${CORE_COUNTS[@]}"; do
     echo "Running analysis with $cores core(s)"
     echo "=========================================="
     
+    
     # Create a directory for this core count
     output_dir="mpi_compression_analysis_${cores}cores"
     mkdir -p "$output_dir"
