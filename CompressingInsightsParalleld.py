@@ -37,7 +37,7 @@ class EnhancedFloatingPointCompressor:
             '#9467bd',  # purple
         ]
 
-    def split_data(data, num_chunks):
+    def split_data(self,data, num_chunks):
         """
         Split data into chunks for parallel processing
         
