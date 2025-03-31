@@ -402,6 +402,82 @@ class EnhancedFloatingPointCompressor:
         results_df.to_json(os.path.join(self.output_dir, 'compression_analysis_results.json'), orient='records')
         
         return results_df
+    def analyze_compression_multicore(self, core_counts):
+        """
+        Analyze compression performance across multiple cores
+        
+        :param core_counts: List of core counts to test
+        :return: DataFrame with performance results
+        """
+        # Generate distributions once
+        distributions = self.generate_distributions()
+        
+        # Prepare results storage
+        performance_results = []
+        
+        # Choose a subset of LSB levels for performance testing
+        performance_lsb_levels = [8, 16, 32]  # Using fewer levels for performance testing
+        
+        # Iterate through distributions
+        for dist_name, original_data in distributions.items():
+            # For each LSB level
+            for lsb in performance_lsb_levels:
+                # Baseline: single-core performance
+                start_time = time.time()
+                single_core_result = self.compress_data(original_data, lsb)
+                single_core_time = time.time() - start_time
+                
+                # For each core count
+                for num_cores in core_counts:
+                    if num_cores == 1:
+                        # Use the baseline measurement for 1 core
+                        execution_time = single_core_time
+                        speedup = 1.0
+                        efficiency = 1.0
+                    else:
+                        # Run multicore compression
+                        start_time = time.time()
+                        
+                        # Split data into chunks
+                        data_chunks = self.split_data(original_data, num_cores)
+                        
+                        # Prepare arguments for parallel processing
+                        args = [(chunk, lsb, i) for i, chunk in enumerate(data_chunks)]
+                        
+                        # Process in parallel
+                        with ProcessPoolExecutor(max_workers=num_cores) as executor:
+                            chunk_results = list(executor.map(self.compress_chunk, args))
+                        
+                        execution_time = time.time() - start_time
+                        speedup = single_core_time / execution_time
+                        efficiency = speedup / num_cores
+                    
+                    # Estimate theoretical maximum speedup using Amdahl's law
+                    # Assume 5% of the task is serial (adjust based on your algorithm)
+                    serial_fraction = 0.05
+                    theoretical_max_speedup = 1 / (serial_fraction + (1 - serial_fraction) / num_cores)
+                    
+                    # Store results
+                    performance_results.append({
+                        'Distribution': dist_name,
+                        'LSB_Zeroed': lsb,
+                        'Num_Cores': num_cores,
+                        'Execution_Time': execution_time,
+                        'Speedup': speedup,
+                        'Efficiency': efficiency,
+                        'Theoretical_Max_Speedup': theoretical_max_speedup
+                    })
+        
+        # Convert to DataFrame
+        perf_df = pd.DataFrame(performance_results)
+        
+        # Generate performance report
+        self._generate_performance_report(perf_df)
+        
+        # Save results to JSON
+        perf_df.to_json(os.path.join(self.output_dir, 'multicore_performance_results.json'), orient='records')
+        
+        return perf_df
     
     def _generate_distribution_comparisons(self, distributions):
         """
